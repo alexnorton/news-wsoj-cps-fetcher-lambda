@@ -1,0 +1,86 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  CPSNotificationTopicArn:
+    Type: String
+    Default: arn:aws:sns:eu-west-1:303748928824:live-publisher-notifications
+  ArticleCreatedEventQueue:
+    Type: String
+    Default: arn:aws:sqs:eu-west-1:381455184766:test-vectorisation-vector-create-main-EventQueue-15N23RV2U6O9Z
+  ArticleRemovedEventQueue:
+    Type: String
+    Default: arn:aws:sqs:eu-west-1:381455184766:test-vectorisation-vector-delete-article-removed-main-EventQueue-CBENE9HZGB78
+  ContentApiKey:
+    Type: String
+Resources:
+  ArticlesBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      NotificationConfiguration:
+        QueueConfigurations:
+          - Event: s3:ObjectCreated:*
+            Queue: !Ref ArticleCreatedEventQueue
+          - Event: s3:ObjectRemoved:*
+            Queue: !Ref ArticleRemovedEventQueue
+  FunctionInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      SourceArn: !Ref CPSNotificationTopicArn
+      FunctionName: !GetAtt Function.Arn
+  FunctionSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref CPSNotificationTopicArn
+      Protocol: lambda
+      Endpoint: !GetAtt Function.Arn
+  Function:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: handler.handler
+      Role: !GetAtt FunctionExecutionRole.Arn
+      Code:
+        ZipFile: |
+          def handler(event, context):
+            return None
+      Environment:
+        Variables:
+          ARTICLES_S3_BUCKET: !Ref ArticlesBucket
+          CONTENT_API_KEY: !Ref ContentApiKey
+      Runtime: python3.6
+      Timeout: 20
+  FunctionExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: '/'
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:*
+                Resource: arn:aws:logs:*:*:*
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Join
+                  - '/'
+                  - - !GetAtt ArticlesBucket.Arn
+                    - '*'
+Outputs:
+  ArticlesBucketName:
+    Value: !Ref ArticlesBucket
+  FunctionName:
+    Value: !Ref Function
